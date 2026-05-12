@@ -2,25 +2,71 @@
 <html lang="es">
 <head>
     <meta charset="UTF-8">
-    <title>Pixel Realtime P2P</title>
+    <title>Pixel World: Multi-Mode</title>
     <script src="https://unpkg.com"></script>
     <style>
-        body { margin: 0; overflow: hidden; background: #1a1a1a; font-family: sans-serif; color: white; }
-        #ui { position: absolute; top: 10px; left: 10px; background: rgba(0,0,0,0.8); padding: 15px; border-radius: 8px; z-index: 10; }
+        body { margin: 0; overflow: hidden; background: #0a0a0a; font-family: 'Segoe UI', Tahoma, sans-serif; color: white; }
+
+        /* Pantalla de Inicio */
+        #menu {
+            position: absolute; inset: 0; background: rgba(10,10,10,0.95);
+            display: flex; flex-direction: column; align-items: center; justify-content: center; z-index: 100;
+        }
+        .card {
+            background: #222; padding: 30px; border-radius: 15px; border: 1px solid #444;
+            text-align: center; width: 350px; box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+        }
+        h1 { color: #00c8ff; margin-bottom: 25px; }
+        button {
+            width: 100%; padding: 12px; margin: 8px 0; border: none; border-radius: 5px;
+            background: #333; color: white; cursor: pointer; font-weight: bold; transition: 0.3s;
+        }
+        button:hover { background: #444; transform: translateY(-2px); }
+        button.primary { background: #00c8ff; color: #000; }
+        button.primary:hover { background: #fff; }
+        input {
+            width: 100%; padding: 10px; margin: 10px 0; box-sizing: border-box;
+            background: #111; border: 1px solid #444; color: white; border-radius: 5px;
+        }
+
+        /* Interfaz de Juego */
+        #game-ui {
+            position: absolute; top: 15px; left: 15px; z-index: 10;
+            display: none; background: rgba(0,0,0,0.8); padding: 15px; border-radius: 10px;
+        }
+        .mode-tag { font-size: 12px; color: #00c8ff; text-transform: uppercase; letter-spacing: 1px; }
         canvas { cursor: crosshair; image-rendering: pixelated; }
-        .btn { background: #444; border: 1px solid #666; color: white; padding: 5px 10px; cursor: pointer; margin-top: 5px; }
-        input { margin-bottom: 5px; }
     </style>
 </head>
 <body>
 
-<div id="ui">
-    <div>Tu ID: <b id="my-id">...</b></div>
-    <input type="text" id="peer-id" placeholder="ID de tu amigo">
-    <button class="btn" onclick="connectToFriend()">Conectar con amigo</button>
-    <hr>
-    Color: <input type="color" id="colorPicker" value="#ff0000"><br>
-    <small>Scroll: Zoom | Click Derecho: Mover</small>
+<!-- MENÚ PRINCIPAL -->
+<div id="menu">
+    <div class="card" id="main-card">
+        <h1>PIXEL WORLD</h1>
+        <button onclick="startMode('solo')">MUNDO SOLITARIO</button>
+        <button onclick="showMenu('friend')">MUNDO AMIGO (P2P)</button>
+        <button onclick="startMode('server')">MUNDO SERVER (GLOBAL)</button>
+    </div>
+
+    <div class="card" id="friend-menu" style="display:none">
+        <h2>MODO AMIGO</h2>
+        <p>Tu ID Personalizada:</p>
+        <input type="text" id="custom-id" placeholder="Ej: el-pro-2024">
+        <button class="primary" onclick="initPeer()">CREAR / CAMBIAR ID</button>
+        <hr style="border:0; border-top:1px solid #444; margin:15px 0">
+        <input type="text" id="peer-id" placeholder="ID de tu amigo">
+        <button onclick="connectToFriend()">CONECTAR A AMIGO</button>
+        <button onclick="showMenu('main')">VOLVER</button>
+    </div>
+</div>
+
+<!-- UI DE JUEGO -->
+<div id="game-ui">
+    <div class="mode-tag" id="current-mode">MODO</div>
+    <div id="id-display" style="font-size:11px; margin-bottom:10px; color:#aaa"></div>
+    <input type="color" id="colorPicker" value="#00c8ff">
+    <button onclick="location.reload()" style="font-size:10px; padding:5px">SALIR</button>
 </div>
 
 <canvas id="pixelCanvas"></canvas>
@@ -28,52 +74,87 @@
 <script>
     const canvas = document.getElementById('pixelCanvas');
     const ctx = canvas.getContext('2d');
-    const myIdDisplay = document.getElementById('my-id');
-    const peerIdInput = document.getElementById('peer-id');
-    const colorPicker = document.getElementById('colorPicker');
-
     let width = window.innerWidth, height = window.innerHeight;
     let cameraX = 5000, cameraY = 5000, zoom = 20;
     const pixels = new Map();
 
-    // --- LÓGICA DE RED (PeerJS) ---
-    const peer = new Peer();
+    let mode = 'solo';
+    let peer = null;
     let connection = null;
 
-    peer.on('open', (id) => { myIdDisplay.innerText = id; });
+    function showMenu(menuId) {
+        document.getElementById('main-card').style.display = menuId === 'main' ? 'block' : 'none';
+        document.getElementById('friend-menu').style.display = menuId === 'friend' ? 'block' : 'none';
+    }
 
-    // Cuando alguien se conecta a TI
-    peer.on('connection', (conn) => {
-        setupConn(conn);
-        alert("¡Amigo conectado!");
-    });
+    function startMode(m) {
+        mode = m;
+        document.getElementById('menu').style.display = 'none';
+        document.getElementById('game-ui').style.display = 'block';
+        document.getElementById('current-mode').innerText = `MUNDO ${m}`;
+        initCanvas();
+    }
+
+    // --- LÓGICA P2P (MODO AMIGO) ---
+    function initPeer() {
+        const customId = document.getElementById('custom-id').value;
+        if (!customId) return alert("Escribe una ID");
+
+        peer = new Peer(customId);
+
+        peer.on('open', (id) => {
+            alert("Tu ID ahora es: " + id);
+            document.getElementById('id-display').innerText = "Tu ID: " + id;
+            startMode('amigo');
+        });
+
+        peer.on('connection', (conn) => {
+            connection = conn;
+            setupConn();
+            alert("¡Un amigo se ha unido a tu mundo!");
+        });
+
+        peer.on('error', (err) => {
+            if(err.type === 'unavailable-id') alert("Esa ID ya está en uso. Elige otra.");
+            else alert("Error: " + err.type);
+        });
+    }
 
     function connectToFriend() {
-        const id = peerIdInput.value;
-        if (id) {
-            const conn = peer.connect(id);
-            setupConn(conn);
+        const id = document.getElementById('peer-id').value;
+        if (!id) return;
+
+        // Si el usuario no ha creado su propia ID antes de conectar, creamos una aleatoria
+        if (!peer) {
+            peer = new Peer();
+            peer.on('open', () => {
+                connection = peer.connect(id);
+                setupConn();
+                startMode('amigo');
+            });
+        } else {
+            connection = peer.connect(id);
+            setupConn();
+            startMode('amigo');
         }
     }
 
-    function setupConn(conn) {
-        connection = conn;
+    function setupConn() {
         connection.on('data', (data) => {
-            // Recibir pixel del amigo
             pixels.set(`${data.x},${data.y}`, data.color);
             render();
         });
     }
 
-    // --- LÓGICA DE DIBUJO ---
-    function init() {
+    // --- MOTOR DEL LIENZO ---
+    function initCanvas() {
         canvas.width = width;
         canvas.height = height;
         render();
     }
 
     function render() {
-        ctx.fillStyle = '#222';
+        ctx.fillStyle = '#111';
         ctx.fillRect(0, 0, width, height);
 
         const startX = Math.floor(cameraX - (width / 2) / zoom);
@@ -81,6 +162,7 @@
         const startY = Math.floor(cameraY - (height / 2) / zoom);
         const endY = Math.ceil(cameraY + (height / 2) / zoom);
 
+        // Dibujar solo lo que está en pantalla
         pixels.forEach((color, key) => {
             const [x, y] = key.split(',').map(Number);
             if (x >= startX && x <= endX && y >= startY && y <= endY) {
@@ -90,34 +172,34 @@
         });
     }
 
-    function screenToWorld(sx, sy) {
-        return {
-            x: Math.floor((sx - width / 2) / zoom + cameraX),
-            y: Math.floor((sy - height / 2) / zoom + cameraY)
-        };
-    }
-
     function paint(e) {
-        const pos = screenToWorld(e.clientX, e.clientY);
-        const color = colorPicker.value;
-        pixels.set(`${pos.x},${pos.y}`, color);
+        const worldX = Math.floor((e.clientX - width / 2) / zoom + cameraX);
+        const worldY = Math.floor((e.clientY - height / 2) / zoom + cameraY);
+        const color = document.getElementById('colorPicker').value;
 
-        // ENVIAR AL AMIGO
-        if (connection && connection.open) {
-            connection.send({ x: pos.x, y: pos.y, color: color });
+        pixels.set(`${worldX},${worldY}`, color);
+
+        if (mode === 'amigo' && connection && connection.open) {
+            connection.send({ x: worldX, y: worldY, color: color });
         }
+
+        if (mode === 'server') {
+            console.log("Enviando a servidor ficticio...");
+            // Aquí iría el fetch() a una API real
+        }
+
         render();
     }
 
-    // --- EVENTOS ---
+    // --- CONTROLES ---
     let isDragging = false, lastX, lastY;
+
     canvas.addEventListener('mousedown', (e) => {
         if (e.button === 0) paint(e);
         if (e.button === 2) isDragging = true;
         lastX = e.clientX; lastY = e.clientY;
     });
-    window.addEventListener('mouseup', () => isDragging = false);
-    window.addEventListener('contextmenu', e => e.preventDefault());
+
     window.addEventListener('mousemove', (e) => {
         if (isDragging) {
             cameraX -= (e.clientX - lastX) / zoom;
@@ -126,17 +208,19 @@
             render();
         }
     });
+
+    window.addEventListener('mouseup', () => isDragging = false);
+    window.addEventListener('contextmenu', e => e.preventDefault());
     canvas.addEventListener('wheel', (e) => {
-        zoom = Math.min(Math.max(e.deltaY > 0 ? zoom * 0.9 : zoom * 1.1, 1), 100);
+        zoom = Math.min(Math.max(e.deltaY > 0 ? zoom * 0.8 : zoom * 1.2, 0.5), 100);
         render();
     });
 
     window.addEventListener('resize', () => {
         width = window.innerWidth; height = window.innerHeight;
-        init();
+        initCanvas();
     });
 
-    init();
 </script>
 </body>
 </html>
