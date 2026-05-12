@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <title>Pixel Realtime P2P</title>
+    <script src="https://unpkg.com"></script>
+    <style>
+        body { margin: 0; overflow: hidden; background: #1a1a1a; font-family: sans-serif; color: white; }
+        #ui { position: absolute; top: 10px; left: 10px; background: rgba(0,0,0,0.8); padding: 15px; border-radius: 8px; z-index: 10; }
+        canvas { cursor: crosshair; image-rendering: pixelated; }
+        .btn { background: #444; border: 1px solid #666; color: white; padding: 5px 10px; cursor: pointer; margin-top: 5px; }
+        input { margin-bottom: 5px; }
+    </style>
+</head>
+<body>
+
+<div id="ui">
+    <div>Tu ID: <b id="my-id">...</b></div>
+    <input type="text" id="peer-id" placeholder="ID de tu amigo">
+    <button class="btn" onclick="connectToFriend()">Conectar con amigo</button>
+    <hr>
+    Color: <input type="color" id="colorPicker" value="#ff0000"><br>
+    <small>Scroll: Zoom | Click Derecho: Mover</small>
+</div>
+
+<canvas id="pixelCanvas"></canvas>
+
+<script>
+    const canvas = document.getElementById('pixelCanvas');
+    const ctx = canvas.getContext('2d');
+    const myIdDisplay = document.getElementById('my-id');
+    const peerIdInput = document.getElementById('peer-id');
+    const colorPicker = document.getElementById('colorPicker');
+
+    let width = window.innerWidth, height = window.innerHeight;
+    let cameraX = 5000, cameraY = 5000, zoom = 20;
+    const pixels = new Map();
+
+    // --- LÓGICA DE RED (PeerJS) ---
+    const peer = new Peer();
+    let connection = null;
+
+    peer.on('open', (id) => { myIdDisplay.innerText = id; });
+
+    // Cuando alguien se conecta a TI
+    peer.on('connection', (conn) => {
+        setupConn(conn);
+        alert("¡Amigo conectado!");
+    });
+
+    function connectToFriend() {
+        const id = peerIdInput.value;
+        if (id) {
+            const conn = peer.connect(id);
+            setupConn(conn);
+        }
+    }
+
+    function setupConn(conn) {
+        connection = conn;
+        connection.on('data', (data) => {
+            // Recibir pixel del amigo
+            pixels.set(`${data.x},${data.y}`, data.color);
+            render();
+        });
+    }
+
+    // --- LÓGICA DE DIBUJO ---
+    function init() {
+        canvas.width = width;
+        canvas.height = height;
+        render();
+    }
+
+    function render() {
+        ctx.fillStyle = '#222';
+        ctx.fillRect(0, 0, width, height);
+
+        const startX = Math.floor(cameraX - (width / 2) / zoom);
+        const endX = Math.ceil(cameraX + (width / 2) / zoom);
+        const startY = Math.floor(cameraY - (height / 2) / zoom);
+        const endY = Math.ceil(cameraY + (height / 2) / zoom);
+
+        pixels.forEach((color, key) => {
+            const [x, y] = key.split(',').map(Number);
+            if (x >= startX && x <= endX && y >= startY && y <= endY) {
+                ctx.fillStyle = color;
+                ctx.fillRect((x - cameraX) * zoom + width / 2, (y - cameraY) * zoom + height / 2, zoom, zoom);
+            }
+        });
+    }
+
+    function screenToWorld(sx, sy) {
+        return {
+            x: Math.floor((sx - width / 2) / zoom + cameraX),
+            y: Math.floor((sy - height / 2) / zoom + cameraY)
+        };
+    }
+
+    function paint(e) {
+        const pos = screenToWorld(e.clientX, e.clientY);
+        const color = colorPicker.value;
+        pixels.set(`${pos.x},${pos.y}`, color);
+
+        // ENVIAR AL AMIGO
+        if (connection && connection.open) {
+            connection.send({ x: pos.x, y: pos.y, color: color });
+        }
+        render();
+    }
+
+    // --- EVENTOS ---
+    let isDragging = false, lastX, lastY;
+    canvas.addEventListener('mousedown', (e) => {
+        if (e.button === 0) paint(e);
+        if (e.button === 2) isDragging = true;
+        lastX = e.clientX; lastY = e.clientY;
+    });
+    window.addEventListener('mouseup', () => isDragging = false);
+    window.addEventListener('contextmenu', e => e.preventDefault());
+    window.addEventListener('mousemove', (e) => {
+        if (isDragging) {
+            cameraX -= (e.clientX - lastX) / zoom;
+            cameraY -= (e.clientY - lastY) / zoom;
+            lastX = e.clientX; lastY = e.clientY;
+            render();
+        }
+    });
+    canvas.addEventListener('wheel', (e) => {
+        zoom = Math.min(Math.max(e.deltaY > 0 ? zoom * 0.9 : zoom * 1.1, 1), 100);
+        render();
+    });
+
+    window.addEventListener('resize', () => {
+        width = window.innerWidth; height = window.innerHeight;
+        init();
+    });
+
+    init();
+</script>
+</body>
+</html>
