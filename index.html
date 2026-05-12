@@ -2,7 +2,7 @@
 <html lang="es">
 <head>
     <meta charset="UTF-8">
-    <title>Pixel World - Online Sync</title>
+    <title>Pixel World 10K - Multijugador</title>
     <script src="https://unpkg.com"></script>
     <style>
         body { margin: 0; overflow: hidden; background: #fff; font-family: sans-serif; touch-action: none; }
@@ -14,8 +14,8 @@
         #game-ui { position: absolute; top: 10px; left: 10px; z-index: 10; background: white; border: 3px solid #000; padding: 15px; display: none; }
         canvas { cursor: crosshair; image-rendering: pixelated; display: block; }
         .active-tool { background: #000 !important; color: white !important; }
-        .status { font-size: 11px; color: #444; margin: 5px 0; }
-        .id-label { background: #eee; padding: 5px; font-family: monospace; border: 1px dashed #000; font-size: 12px; margin: 5px 0; }
+        .status { font-size: 11px; color: #444; margin: 5px 0; font-weight: bold; }
+        .id-label { background: #f0f0f0; padding: 5px; font-family: monospace; border: 1px dashed #000; font-size: 12px; margin: 5px 0; }
     </style>
 </head>
 <body>
@@ -24,7 +24,7 @@
     <div class="card">
         <h1 style="margin-top:0">PIXEL WORLD</h1>
         <button onclick="startMode('SOLITARIO')">MUNDO SOLITARIO</button>
-        <button onclick="startMode('SERVER GLOBAL')">MUNDO SERVER</button>
+        <button onclick="startMode('SERVER GLOBAL')">MUNDO SERVER GLOBAL</button>
         <hr style="border: 1px solid #000; margin: 15px 0;">
         <input type="text" id="join-id" placeholder="ID DEL AMIGO">
         <button onclick="connectToFriend()" style="background: #00ff00;">UNIRSE A AMIGO</button>
@@ -32,26 +32,26 @@
 </div>
 
 <div id="game-ui">
-    <div id="mode-info" style="font-weight:bold; font-size: 18px;">MODO</div>
+    <div id="mode-info" style="font-weight:bold; font-size: 16px; color: #007bff;">MODO</div>
     <div id="online-status" class="status">Offline</div>
     
     <div id="online-controls">
-        <button onclick="goOnline()" style="background: #e1f5fe;">VOLVER MUNDO ONLINE</button>
+        <button onclick="goOnline()" style="background: #e1f5fe;">VOLVER MULTIJUGADOR ONLINE</button>
     </div>
     
     <div id="host-panel" style="display:none;">
-        <div style="font-size:10px; color:#666; margin-top:5px;">ID PARA COMPARTIR:</div>
+        <div style="font-size:10px; color:#666;">TU ID DE MUNDO:</div>
         <div id="my-id-display" class="id-label"></div>
-        <button onclick="location.reload()" style="color:red; border-color:red; font-size:11px; padding:5px;">CERRAR MUNDO ONLINE</button>
+        <button onclick="location.reload()" style="color:red; border-color:red; font-size:10px; padding:4px;">CERRAR MUNDO</button>
     </div>
 
     <hr style="margin: 10px 0; border:0; border-top:1px solid #000;">
-    <input type="color" id="colorPicker" value="#000000" style="width:100%; height:35px; border:2px solid #000;">
+    <input type="color" id="colorPicker" value="#000000" style="width:100%; height:35px; border:2px solid #000; cursor:pointer;">
     <div style="display:flex; gap:5px; margin-top:5px">
         <button id="btn-paint" class="active-tool" onclick="setTool('paint')">LÁPIZ</button>
         <button id="btn-erase" onclick="setTool('erase')">GOMA</button>
     </div>
-    <button onclick="location.reload()" style="margin-top:15px; font-size: 10px; border-color: #ccc;">SALIR AL MENÚ</button>
+    <button onclick="location.reload()" style="margin-top:15px; font-size: 10px;">SALIR</button>
 </div>
 
 <canvas id="pixelCanvas"></canvas>
@@ -63,82 +63,95 @@
     let pixels = new Map(), tool = 'paint';
     let peer = null, connections = [], isDrawing = false, isDragging = false;
 
-    // LocalStorage
-    const saved = localStorage.getItem('pixel_final_v1');
+    // LocalStorage para no perder lo que pintas
+    const saved = localStorage.getItem('pixel_v5');
     if (saved) pixels = new Map(JSON.parse(saved));
 
     function startMode(m) {
         document.getElementById('menu').style.display = 'none';
         document.getElementById('game-ui').style.display = 'block';
-        document.getElementById('mode-info').innerText = m;
         
         if (m === 'SERVER GLOBAL') {
+            document.getElementById('mode-info').innerText = "MULTIJUGADOR ONLINE (SERVER)";
             document.getElementById('online-controls').style.display = 'none';
             initServer();
+        } else {
+            document.getElementById('mode-info').innerText = m;
         }
         resize();
         render();
     }
 
-    // --- IR ONLINE DESDE SOLITARIO ---
+    // --- LÓGICA MULTIJUGADOR ---
     function goOnline() {
-        const id = prompt("ID de tu mundo online:");
+        const id = prompt("Nombra tu mundo online:");
         if (!id) return;
         
         peer = new Peer(id);
         peer.on('open', (openedId) => {
-            document.getElementById('mode-info').innerText = "MUNDO ONLINE";
-            document.getElementById('online-status').innerText = "Estado: Hosting ✅";
+            document.getElementById('mode-info').innerText = "MULTIJUGADOR ONLINE";
+            document.getElementById('online-status').innerText = "Estado: HOSTING ✅";
             document.getElementById('my-id-display').innerText = openedId;
-            
             document.getElementById('online-controls').style.display = 'none';
             document.getElementById('host-panel').style.display = 'block';
         });
 
-        peer.on('connection', (conn) => {
-            setupConnection(conn);
-            conn.on('open', () => conn.send({ type: 'full-map', data: [...pixels] }));
-        });
-
-        peer.on('error', (err) => alert("Error: ID ocupada. Elige otro nombre."));
+        peer.on('connection', setupConnection);
+        peer.on('error', () => alert("Esa ID ya está en uso."));
     }
 
-    // --- UNIRSE A AMIGO ---
     function connectToFriend() {
         const id = document.getElementById('join-id').value.trim();
-        if (!id) return alert("Introduce la ID");
+        if (!id) return;
 
         peer = new Peer();
         peer.on('open', () => {
             const conn = peer.connect(id);
             setupConnection(conn);
-            startMode('MUNDO ONLINE');
+            startMode('MULTIJUGADOR ONLINE');
             document.getElementById('online-controls').style.display = 'none';
-            document.getElementById('online-status').innerText = "Conectando...";
+            document.getElementById('online-status').innerText = "Conectando con amigo...";
         });
-        peer.on('error', () => { alert("No se encontró el mundo."); location.reload(); });
     }
 
     function initServer() {
+        // En el Server Global, el primero que entra es el "Master"
+        const serverId = 'pixel-server-global-999';
         peer = new Peer();
-        peer.on('open', () => setupConnection(peer.connect('global-room-10k')));
-        const master = new Peer('global-room-10k');
-        master.on('connection', setupConnection);
+        peer.on('open', () => {
+            const conn = peer.connect(serverId);
+            setupConnection(conn);
+        });
+
+        const masterPeer = new Peer(serverId);
+        masterPeer.on('connection', setupConnection);
+        masterPeer.on('error', () => console.log("Unido como participante"));
     }
 
     function setupConnection(conn) {
         connections.push(conn);
+        conn.on('open', () => {
+            document.getElementById('online-status').innerText = "Estado: SINCRONIZADO ✅";
+            // El host envía el mapa completo al nuevo
+            if (peer.id.includes('server') || document.getElementById('host-panel').style.display === 'block') {
+                conn.send({ type: 'full-map', data: [...pixels] });
+            }
+        });
+
         conn.on('data', (data) => {
             if (data.type === 'full-map') pixels = new Map(data.data);
             else if (data.type === 'erase') pixels.delete(`${data.x},${data.y}`);
             else pixels.set(`${data.x},${data.y}`, data.color);
             render();
+            // Re-enviar a otros para que todos lo vean (Relay)
+            if (connections.length > 1) broadcast(data, conn);
         });
-        document.getElementById('online-status').innerText = "Estado: Sincronizado ✅";
     }
 
-    function broadcast(data) {
-        connections.forEach(c => { if (c.open) c.send(data); });
+    function broadcast(data, excludeConn = null) {
+        connections.forEach(c => {
+            if (c.open && c !== excludeConn) c.send(data);
+        });
     }
 
     // --- DIBUJO ---
@@ -149,13 +162,15 @@
 
         if (tool === 'paint') {
             const color = document.getElementById('colorPicker').value;
+            if(pixels.get(key) === color) return;
             pixels.set(key, color);
             broadcast({ x, y, color, type: 'paint' });
         } else {
+            if(!pixels.has(key)) return;
             pixels.delete(key);
             broadcast({ x, y, type: 'erase' });
         }
-        localStorage.setItem('pixel_final_v1', JSON.stringify([...pixels]));
+        localStorage.setItem('pixel_v5', JSON.stringify([...pixels]));
         render();
     }
 
@@ -174,7 +189,7 @@
         });
     }
 
-    // --- EVENTOS ---
+    // --- CONTROLES ---
     canvas.onmousedown = (e) => {
         if (e.button === 0) { isDrawing = true; paint(e); }
         if (e.button === 2) isDragging = true;
